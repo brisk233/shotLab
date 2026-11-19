@@ -1,0 +1,27 @@
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+captures/
+
+# Generated APKs and media
+*.apk
+*.aab
+*.mp4
+*.hprof
+
+# Runtime and analysis output
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+round*_review/
+_ocr.txt
+
+# Python model weights not used by the app build
+*.pt
+*.pth
