@@ -12,8 +12,8 @@ android {
         applicationId = "app.bball.court"
         minSdk = 24
         targetSdk = 34
-        versionCode = 73
-        versionName = "7.3.0-round3"
+        versionCode = 75
+        versionName = "7.5.0-round5"
         val wantsX86 = (project.findProperty("x86") as String?) == "true"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") + if (wantsX86) listOf("x86") else emptyList() }
     }
@@ -48,6 +48,6 @@ dependencies {
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.google.code.gson:gson:2.11.0")
 }

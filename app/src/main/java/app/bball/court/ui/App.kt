@@ -2,6 +2,9 @@ package app.bball.court.ui
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.LayoutInflater
+import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -35,10 +38,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import app.bball.court.core.NPt
 import app.bball.court.core.NRect
+import app.bball.court.core.ShotHistoryRecord
+import app.bball.court.core.ShotHistoryStore
 import app.bball.court.core.ShotAnalyzer
 import app.bball.court.core.ShotReport
 import app.bball.court.CrashLog
@@ -46,6 +52,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val Bg = Color(0xFF0B0B10)
 private val Card = Color(0xFF17171C)
@@ -57,11 +66,16 @@ sealed interface Screen {
     data object Home : Screen
     data class Failed(val title: String, val detail: String) : Screen
     data object Cameras : Screen
+    data object History : Screen
+    data class HistoryDetail(val record: ShotHistoryRecord) : Screen
     data class Calibrate(val uri: Uri, val frame: Bitmap?) : Screen
     data class CourtCalib(val uri: Uri, val frame: Bitmap?) : Screen
     data class Analyzing(val uri: Uri, val hoop: NRect, val progress: Float, val live: ShotReport) : Screen
-    data class Report(val report: ShotReport, val uri: Uri) : Screen
-    data class ShotPlayback(val report: ShotReport, val uri: Uri, val index: Int) : Screen
+    data class Report(
+        val report: ShotReport,
+        val uri: Uri,
+        val history: ShotHistoryRecord? = null,
+    ) : Screen
 }
 
 @Composable
@@ -73,6 +87,23 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
     val scope = rememberCoroutineScope()
     val analyzer = remember { ShotAnalyzer(ctx.applicationContext) }
     var crash by remember { mutableStateOf(CrashLog.read(ctx)) }
+
+    suspend fun finishAnalysis(uri: Uri, report: ShotReport) {
+        if (report.error != null && report.framesAnalysed == 0) {
+            screen = Screen.Failed("分析中断", report.error!!)
+            return
+        }
+        val savedRecord = try {
+            withContext(Dispatchers.IO) {
+                ShotHistoryStore.save(ctx, uri, report)
+            }
+        } catch (_: Throwable) {
+            // 历史写入失败不能阻挡本次报告展示。
+            null
+        }
+        screen = Screen.Report(report, uri, savedRecord)
+    }
+
     // Test/debug entry: `adb shell am start ... -e video /sdcard/Download/x.mp4`
     // 统一的"开始分析"入口：报告页/自动套用/手动标定都走这里
     fun startAnalysis(uri: Uri, rim: NRect, seed: NPt? = null, frame: Bitmap? = null) {
@@ -87,8 +118,7 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                 val report = analyzer.analyze(uri, rim, ShotAnalyzer.Options(seedPoint = seed, homography = court, autoDetected = initialRim == null)) { p, live ->
                     screen = Screen.Analyzing(uri, rim, p, live)
                 }
-                screen = if (report.error != null && report.framesAnalysed == 0) Screen.Failed("分析中断", report.error!!)
-                         else Screen.Report(report, uri)
+                finishAnalysis(uri, report)
             } catch (t: Throwable) {
                 screen = Screen.Failed("分析失败", (t.message ?: t.javaClass.simpleName))
             }
@@ -116,6 +146,7 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             try {
+                ShotHistoryStore.rememberReadPermission(ctx, uri)
                 val frame = analyzer.firstFrame(uri)
                 if (frame == null) {
                     screen = Screen.Failed("这个视频解不出画面", "可能是 HEVC / 10bit / 特殊封装。换一段手机自己录的 mp4（H.264）再试。")
@@ -145,7 +176,8 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
             } else HomeScreen(
                 onPick = { pick.launch(arrayOf("video/*")) },
                 onCameras = { screen = Screen.Cameras },
-                                sens = sens,
+                onHistory = { screen = Screen.History },
+                sens = sens,
                 onCycleSens = {
                     val next = when (sens) {
                         app.bball.court.core.Sensitivity.LOOSE -> app.bball.court.core.Sensitivity.STANDARD
@@ -157,6 +189,14 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                 },
             )
             is Screen.Cameras -> CameraListScreen(onBack = { screen = Screen.Home })
+            is Screen.History -> HistoryScreen(
+                onBack = { screen = Screen.Home },
+                onOpen = { screen = Screen.HistoryDetail(it) },
+            )
+            is Screen.HistoryDetail -> HistoryDetailScreen(
+                record = s.record,
+                onBack = { screen = Screen.History },
+            )
             is Screen.Failed -> FailedScreen(
                 title = s.title, detail = s.detail,
                 primary = "换一个视频",
@@ -178,9 +218,7 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                             val report = analyzer.analyze(s.uri, hoop, ShotAnalyzer.Options(seedPoint = seed, homography = court)) { p, live ->
                                 screen = Screen.Analyzing(s.uri, hoop, p, live)
                             }
-                            screen = if (report.error != null && report.framesAnalysed == 0) {
-                                Screen.Failed("分析中断", report.error!!)
-                            } else Screen.Report(report, s.uri)
+                            finishAnalysis(s.uri, report)
                         } catch (t: Throwable) {
                             screen = Screen.Failed("分析失败", (t.message ?: t.javaClass.simpleName))
                         }
@@ -194,13 +232,10 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
             )
             is Screen.Analyzing -> AnalyzingScreen(s)
             is Screen.Report -> ReportScreen(
-                s = s,
+                report = s.report,
+                sourceUri = s.uri,
+                history = s.history,
                 onAgain = { screen = Screen.Home },
-                onPlayShot = { index -> screen = Screen.ShotPlayback(s.report, s.uri, index) },
-            )
-            is Screen.ShotPlayback -> ShotPlaybackScreen(
-                s = s,
-                onBack = { screen = Screen.Report(s.report, s.uri) },
             )
         }
       }
@@ -208,7 +243,13 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
 }
 
 @Composable
-private fun HomeScreen(onPick: () -> Unit, onCameras: () -> Unit, sens: app.bball.court.core.Sensitivity, onCycleSens: () -> Unit) {
+private fun HomeScreen(
+    onPick: () -> Unit,
+    onCameras: () -> Unit,
+    onHistory: () -> Unit,
+    sens: app.bball.court.core.Sensitivity,
+    onCycleSens: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -227,14 +268,55 @@ private fun HomeScreen(onPick: () -> Unit, onCameras: () -> Unit, sens: app.bbal
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) { Text("选择篮球视频", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(20.dp))
+        Text("快捷入口", color = Dim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HomeShortcut(
+                title = "解析历史",
+                subtitle = "查看报告与出手明细",
+                onClick = onHistory,
+                modifier = Modifier.weight(1f),
+            )
+            HomeShortcut(
+                title = "机位管理",
+                subtitle = "查看并删除已存机位",
+                onClick = onCameras,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
         Text(
             "拍摄建议：相机放在球场侧面或 45° 斜侧，能同时看到人和篮筐；画面里只留一个投篮的人，命中判定最准。",
             color = Dim, fontSize = 12.sp, lineHeight = 18.sp,
         )
-        Spacer(Modifier.height(10.dp))
-        TextButton(onClick = onCameras) { Text("机位管理", color = Dim, fontSize = 12.sp) }
+        Spacer(Modifier.height(4.dp))
         TextButton(onClick = onCycleSens) { Text("姿态指标灵敏度：${sens.label}（点击切换）", color = Color(0xFFFFC857), fontSize = 12.sp) }
+    }
+}
+
+@Composable
+private fun HomeShortcut(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Card)
+            .border(1.dp, Color(0xFF34343F), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("›", color = Color(0xFF3EE8C8), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(subtitle, color = Dim, fontSize = 10.sp, maxLines = 1)
     }
 }
 
@@ -490,26 +572,42 @@ private fun Stat(label: String, value: String) {
 }
 
 @Composable
-private fun ShotPlaybackScreen(s: Screen.ShotPlayback, onBack: () -> Unit) {
+private fun ShotPlaybackOverlay(
+    report: ShotReport,
+    sourceUri: Uri,
+    index: Int,
+    onClose: () -> Unit,
+) {
     val ctx = LocalContext.current
-    val shot = s.report.shots.getOrNull(s.index)
-    var clipFile by remember(s.uri, s.index) { mutableStateOf<java.io.File?>(null) }
-    var preparing by remember(s.uri, s.index) { mutableStateOf(true) }
-    var failed by remember(s.uri, s.index) { mutableStateOf(false) }
+    val shot = report.shots.getOrNull(index)
+    var clipFile by remember(sourceUri, index) { mutableStateOf<java.io.File?>(null) }
+    var preparing by remember(sourceUri, index) { mutableStateOf(true) }
+    var failed by remember(sourceUri, index) { mutableStateOf(false) }
+    var ended by remember(sourceUri, index) { mutableStateOf(false) }
     val exoPlayer = remember { ExoPlayer.Builder(ctx).build() }
 
     DisposableEffect(exoPlayer) {
-        onDispose { exoPlayer.release() }
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                ended = playbackState == Player.STATE_ENDED
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
     }
 
-    LaunchedEffect(s.uri, s.index) {
+    LaunchedEffect(sourceUri, index) {
         preparing = true
         failed = false
+        ended = false
         clipFile = if (shot == null) {
             null
         } else {
             withContext(Dispatchers.IO) {
-                app.bball.court.core.ClipMaker.cutShotPreview(ctx, s.uri, shot)
+                app.bball.court.core.ClipMaker.cutShotPreview(ctx, sourceUri, shot)
             }
         }
         failed = clipFile == null
@@ -523,59 +621,323 @@ private fun ShotPlaybackScreen(s: Screen.ShotPlayback, onBack: () -> Unit) {
         exoPlayer.playWhenReady = true
     }
 
-    Column(Modifier.fillMaxSize().background(Color.Black).padding(20.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                shot?.let { "第 ${s.index + 1} 次出手 · ${it.type.label} · " + if (it.made) "命中" else "不中" }
-                    ?: "出手回放",
-                color = Ink,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
+    BackHandler(onBack = onClose)
+
+    Box(
+        Modifier.fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            preparing -> {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFF3EE8C8))
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在生成回放…", color = Dim, fontSize = 12.sp)
+                }
+            }
+            failed -> Text("无法读取这次出手，源视频可能已失效", color = Color(0xFFFF6B7F), fontSize = 13.sp)
+            clipFile != null -> AndroidView(
+                factory = { context ->
+                    // Compose 浮窗使用 TextureView，避免 SurfaceView 单独合成时出现黑屏。
+                    (LayoutInflater.from(context)
+                        .inflate(app.bball.court.R.layout.shot_playback_player, FrameLayout(context), false) as PlayerView).apply {
+                        player = exoPlayer
+                        keepScreenOn = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
             )
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onBack) { Text("返回报告", color = Dim, fontSize = 12.sp) }
         }
-        Spacer(Modifier.height(16.dp))
         Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF050508)),
+            Modifier.align(Alignment.TopEnd)
+                .padding(14.dp)
+                .size(38.dp)
+                .background(Color(0x66000000), CircleShape)
+                .clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
-            when {
-                preparing -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFF3EE8C8))
-                        Spacer(Modifier.height(12.dp))
-                        Text("正在生成出手前后片段…", color = Dim, fontSize = 12.sp)
-                    }
-                }
-                failed -> Text("无法生成这次出手的视频，请返回后重试", color = Color(0xFFFF6B7F), fontSize = 13.sp)
-                clipFile != null -> AndroidView(
-                    factory = { context ->
-                        PlayerView(context).apply {
-                            player = exoPlayer
-                            useController = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            Text("×", color = Color.White, fontSize = 24.sp)
         }
-        shot?.let {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "出手 ${it.tMs / 1000f}s · 距离 ${String.format(java.util.Locale.US, "%.1f", it.distanceM)}m",
-                color = Dim,
-                fontSize = 12.sp,
-            )
+        if (ended) {
+            Box(
+                Modifier.size(72.dp)
+                    .background(Color(0x77000000), CircleShape)
+                    .clickable {
+                        exoPlayer.seekTo(0)
+                        exoPlayer.play()
+                        ended = false
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("↻", color = Color.White, fontSize = 42.sp)
+            }
         }
     }
 }
 
 @Composable
-private fun ReportScreen(s: Screen.Report, onAgain: () -> Unit, onPlayShot: (Int) -> Unit) {
-    val r = s.report
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+private fun HistoryScreen(onBack: () -> Unit, onOpen: (ShotHistoryRecord) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var version by remember { mutableStateOf(0) }
+    var confirmClear by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<ShotHistoryRecord?>(null) }
+    var renameError by remember { mutableStateOf<String?>(null) }
+    val records = remember(version) {
+        try { ShotHistoryStore.list(ctx) } catch (_: Throwable) { emptyList() }
+    }
+
+    BackHandler(onBack = onBack)
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空全部解析历史？") },
+            text = { Text("统计记录和缩略图会从本机删除，源视频不会被删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { ShotHistoryStore.clear(ctx) }
+                        version++
+                    }
+                }) { Text("清空", color = Color(0xFFFF6B7F)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            },
+        )
+    }
+
+    renameTarget?.let { target ->
+        RenameHistoryDialog(
+            initialName = target.sourceName,
+            error = renameError,
+            onDismiss = {
+                renameTarget = null
+                renameError = null
+            },
+            onConfirm = { name ->
+                scope.launch {
+                    try {
+                        val updated = withContext(Dispatchers.IO) {
+                            ShotHistoryStore.rename(ctx, target.id, name)
+                        }
+                        if (updated == null) {
+                            renameError = "名称不能为空"
+                        } else {
+                            renameTarget = null
+                            renameError = null
+                            version++
+                        }
+                    } catch (_: Throwable) {
+                        renameError = "重命名失败，请重试"
+                    }
+                }
+            },
+        )
+    }
+
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("解析历史", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            if (records.isNotEmpty()) {
+                TextButton(onClick = { confirmClear = true }) {
+                    Text("清空全部", color = Color(0xFFFF8A8A), fontSize = 12.sp)
+                }
+            }
+            TextButton(onClick = onBack) { Text("返回", color = Dim, fontSize = 12.sp) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("每次成功解析都会新增一条记录。", color = Dim, fontSize = 12.sp)
+        Spacer(Modifier.height(12.dp))
+        if (records.isEmpty()) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("还没有解析记录", color = Dim, fontSize = 13.sp)
+            }
+        } else {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                records.forEach { record ->
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .padding(vertical = 5.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Card)
+                            .clickable { onOpen(record) }
+                            .padding(14.dp),
+                    ) {
+                        Text(
+                            record.sourceName,
+                            color = Ink,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                historyTime(record.createdAtMs),
+                                color = Dim,
+                                fontSize = 11.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = {
+                                renameTarget = record
+                                renameError = null
+                            }) { Text("重命名", color = Color(0xFF3EE8C8), fontSize = 11.sp) }
+                            TextButton(onClick = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { ShotHistoryStore.delete(ctx, record.id) }
+                                    version++
+                                }
+                            }) { Text("删除", color = Color(0xFFFF8A8A), fontSize = 11.sp) }
+                        }
+                        Text(
+                            "${record.made} 中 / ${record.attempts} 次出手 · " +
+                                "两分 ${record.twoMade}/${record.twoAtt} · " +
+                                "三分 ${record.threeMade}/${record.threeAtt}",
+                            color = if (record.made > 0) Color(0xFF2EE6B0) else Dim,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenameHistoryDialog(
+    initialName: String,
+    error: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember(initialName) { mutableStateOf(initialName.take(60)) }
+    val cleanName = name.trim()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("给解析视频命名") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= 60) name = it },
+                    label = { Text("名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(error.orEmpty(), color = Color(0xFFFF6B7F), fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    Text("${name.length}/60", color = Dim, fontSize = 10.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = cleanName.isNotEmpty(),
+                onClick = { onConfirm(cleanName) },
+            ) { Text("保存", color = Color(0xFF3EE8C8)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = Dim) }
+        },
+    )
+}
+
+@Composable
+private fun HistoryDetailScreen(record: ShotHistoryRecord, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var report by remember(record.id) { mutableStateOf<ShotReport?>(null) }
+    var failed by remember(record.id) { mutableStateOf(false) }
+
+    BackHandler(onBack = onBack)
+
+    LaunchedEffect(record.id) {
+        try {
+            report = withContext(Dispatchers.IO) { ShotHistoryStore.loadReport(ctx, record) }
+        } catch (_: Throwable) {
+            failed = true
+        }
+    }
+
+    val loaded = report
+    if (loaded != null) {
+        ReportScreen(
+            report = loaded,
+            sourceUri = Uri.parse(record.sourceUri),
+            history = record,
+            onAgain = onBack,
+            againLabel = "返回历史",
+        )
+    } else {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("解析明细", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onBack) { Text("返回", color = Dim, fontSize = 12.sp) }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                if (failed) Text("历史明细读取失败", color = Color(0xFFFF6B7F), fontSize = 13.sp)
+                else CircularProgressIndicator(color = Color(0xFF3EE8C8))
+            }
+        }
+    }
+}
+
+private fun historyTime(ms: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
+
+@Composable
+private fun ReportScreen(
+    report: ShotReport,
+    sourceUri: Uri,
+    history: ShotHistoryRecord? = null,
+    onAgain: () -> Unit,
+    againLabel: String = "再分析一个视频",
+) {
+    val r = report
+    val reportCtx = LocalContext.current
+    val renameScope = rememberCoroutineScope()
+    var displayName by remember(history?.id, history?.sourceName) {
+        mutableStateOf(history?.sourceName)
+    }
+    var renameOpen by remember(history?.id) { mutableStateOf(false) }
+    var renameError by remember(history?.id) { mutableStateOf<String?>(null) }
+    var playbackIndex by remember(report) { mutableStateOf<Int?>(null) }
+    val scrollState = rememberScrollState()
+
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(24.dp)) {
         Spacer(Modifier.height(24.dp))
+        if (history != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        displayName ?: history.sourceName,
+                        color = Ink,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(historyTime(history.createdAtMs), color = Dim, fontSize = 11.sp)
+                }
+                TextButton(onClick = {
+                    renameError = null
+                    renameOpen = true
+                }) { Text("重命名", color = Color(0xFF3EE8C8), fontSize = 12.sp) }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         if (r.autoRim) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(6.dp).background(Color(0xFF2EE6B0), RoundedCornerShape(50)))
@@ -677,7 +1039,7 @@ private fun ReportScreen(s: Screen.Report, onAgain: () -> Unit, onPlayShot: (Int
                         Column(
                             Modifier.weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { onPlayShot(shotIndex) },
+                                .clickable { playbackIndex = shotIndex },
                         ) {
                             val bmp = sh.thumb
                             Box(
@@ -725,7 +1087,7 @@ private fun ReportScreen(s: Screen.Report, onAgain: () -> Unit, onPlayShot: (Int
                             onlyMade = true,
                         )
                         val name = "ShotLab_" + System.currentTimeMillis() + ".mp4"
-                        val where = app.bball.court.core.ClipMaker.cutToGallery(ctx, s.uri, segs, name)
+                        val where = app.bball.court.core.ClipMaker.cutToGallery(ctx, sourceUri, segs, name)
                         clipMsg = if (where != null) "已保存到相册：Movies/ShotLab/" + name + "（" + segs.size + " 段命中）"
                                   else "生成失败（源视频或片段异常）"
                     }
@@ -762,7 +1124,45 @@ private fun ReportScreen(s: Screen.Report, onAgain: () -> Unit, onPlayShot: (Int
             onClick = onAgain, modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
-        ) { Text("再分析一个视频", fontWeight = FontWeight.Bold) }
+        ) { Text(againLabel, fontWeight = FontWeight.Bold) }
+    }
+    val selectedShot = playbackIndex
+    if (selectedShot != null) {
+        ShotPlaybackOverlay(
+            report = report,
+            sourceUri = sourceUri,
+            index = selectedShot,
+            onClose = { playbackIndex = null },
+        )
+    }
+    if (renameOpen && history != null) {
+        RenameHistoryDialog(
+            initialName = displayName ?: history.sourceName,
+            error = renameError,
+            onDismiss = {
+                renameOpen = false
+                renameError = null
+            },
+            onConfirm = { name ->
+                renameScope.launch {
+                    try {
+                        val updated = withContext(Dispatchers.IO) {
+                            ShotHistoryStore.rename(reportCtx, history.id, name)
+                        }
+                        if (updated == null) {
+                            renameError = "名称不能为空"
+                        } else {
+                            displayName = updated.sourceName
+                            renameOpen = false
+                            renameError = null
+                        }
+                    } catch (_: Throwable) {
+                        renameError = "重命名失败，请重试"
+                    }
+                }
+            },
+        )
+    }
     }
 }
 
