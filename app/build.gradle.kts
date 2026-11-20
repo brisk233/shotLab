@@ -12,8 +12,8 @@ android {
         applicationId = "app.bball.court"
         minSdk = 24
         targetSdk = 34
-        versionCode = 75
-        versionName = "7.5.0-round5"
+        versionCode = 77
+        versionName = "7.7.0-multisource"
         val wantsX86 = (project.findProperty("x86") as String?) == "true"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") + if (wantsX86) listOf("x86") else emptyList() }
     }

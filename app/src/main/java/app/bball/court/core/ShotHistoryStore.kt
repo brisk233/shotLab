@@ -118,6 +118,7 @@ object ShotHistoryStore {
             bestMissStreak = report.bestMissStreak,
             avgIntervalMs = report.avgIntervalMs,
             shots = savedShots,
+            rimAdjustedPx = report.rimAdjustedPx,
         )
         val records = repository(ctx).add(record)
         pruneThumbnails(ctx, records)
@@ -174,6 +175,7 @@ object ShotHistoryStore {
             autoRim = record.autoRim,
             rimBallRatio = record.rimBallRatio,
             rimPx = record.rimPx,
+            rimAdjustedPx = record.rimAdjustedPx,
             bestStreak = record.bestStreak,
             bestMissStreak = record.bestMissStreak,
             avgIntervalMs = record.avgIntervalMs,

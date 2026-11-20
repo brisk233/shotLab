@@ -25,3 +25,11 @@ _ocr.txt
 # Python model weights not used by the app build
 *.pt
 *.pth
+
+# Local video corpora and generated training artifacts
+datasets/incoming/
+datasets/derived/
+datasets/runs/
+tools/training/runs/
+tools/training/.cache/
+runs/

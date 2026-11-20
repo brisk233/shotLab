@@ -56,6 +56,7 @@ object ShotAggregator {
                     ftAtt++
                     if (event.made) ftMade++
                 }
+                ShotType.UNKNOWN -> Unit
             }
         }
 
@@ -111,5 +112,5 @@ object ShotAggregator {
         return unique
     }
 
-    private const val DUPLICATE_WINDOW_MS = 1_200L
+    private const val DUPLICATE_WINDOW_MS = 1_050L
 }

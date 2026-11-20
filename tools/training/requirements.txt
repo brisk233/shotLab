@@ -1,0 +1,8 @@
+av==19.0.2
+onnx==1.23.2
+onnxruntime==1.32.0
+opencv-python==5.1.0.95
+openai-clip==1.0.1
+setuptools==80.9.0
+ultralytics==8.4.216
+yt-dlp==2026.10.26

@@ -15,8 +15,8 @@ import kotlin.math.hypot
 /**
  * 视频 → 投篮报告。A+B 双引擎：
  *
- *   A（检测）：MediaPipe EfficientDet，每 [Options.detectorEveryNFrames] 帧跑一次，
- *              给跟踪器一个可信的绝对位置，也是丢目标后的重捕手段。
+ *   A（检测）：416 YOLO 主检给跟踪器可信绝对位置；主检丢失且存在橙色篮球先验时，
+ *              再用 512 YOLO 做一次精准回补。MediaPipe 仅在 ONNX 不可用时兜底。
  *   B（跟踪）：TemplateTracker，中间帧做 NCC 局部搜索 + 匀速预测，几毫秒一帧。
  *
  * 两者写进同一条 track 缓冲，抛物线拟合只认这一条序列；检测只负责校正，
@@ -27,20 +27,21 @@ import kotlin.math.hypot
 class ShotAnalyzer(private val context: Context) {
 
     data class Options(
-        val sampleFps: Int = 10,
+        /** 集锦里动作切换快；15fps 在召回和真机耗时之间取得平衡。 */
+        val sampleFps: Int = 15,
         /** 读取不到容器帧率时的兜底帧率。 */
         val sourceFps: Double = 30.0,
         val analyzeWidthPx: Int = 720,
-        val poseEveryNFrames: Int = 3,
+        val poseEveryNFrames: Int = 6,
         /** 多人检测间隔；中间帧复用上一组人体框，避免每帧重跑 320 模型。 */
-        val personEveryNFrames: Int = 3,
-        /** 两次完整球检测之间最多由模板跟踪补几帧；2 表示每三帧重跑一次球模型。 */
+        val personEveryNFrames: Int = 6,
+        /** 两次完整球检测之间由模板跟踪补两帧，降低移动端重复推理。 */
         val detectorEveryNFrames: Int = 2,
         /** 是否在篮筐附近再跑一次放大 ROI 模型；完整模型足够准时可关闭以省一次推理。 */
         val refineRimRoi: Boolean = true,
         /** 用户在第一帧点的球（归一化），有它就能从第一帧开始跟踪。 */
         val seedPoint: NPt? = null,
-        /** 球场四点标定结果；为空时退化为"按筐宽估算"。 */
+        /** 球场四点标定结果；为空时不估算米制距离和投篮类型。 */
         val homography: CourtHomography? = null,
         /** 筐框是否来自机位记忆（自动套用）。 */
         val autoDetected: Boolean = false,
@@ -99,6 +100,13 @@ class ShotAnalyzer(private val context: Context) {
 
         val ball = BallDetector(context)
         val yolo = YoloBallDetector(context)
+        // 416 主检负责速度；旧 512 模型只在主检丢失且橙色先验出现时回补，
+        // 用于极低分辨率、高弧球和短暂遮挡，避免全帧恢复扫描拖慢整体。
+        val yoloPrecision = YoloBallDetector(
+            context,
+            assetName = "ball_precision.onnx",
+            confThreshold = 0.25f,
+        )
         val personDet = PersonDetector(context)
         var crop: Letterbox.Crop? = null
         var lastShotEndMs = -100000L
@@ -113,8 +121,9 @@ class ShotAnalyzer(private val context: Context) {
         var scaledW = 0
         var frameHForEngine = 1280
         var tDecode = 0L; var tDetect = 0L; var tPerson = 0L; var tRoi = 0L
-        var tPose = 0L; var tTrack = 0L
+        var tPose = 0L; var tTrack = 0L; var tPrecision = 0L
         var nDecode = 0; var nDetect = 0; var nPerson = 0; var nRoi = 0; var nPose = 0; var nTrack = 0
+        var nPrecision = 0; var precisionHits = 0
         val pose = PoseEstimator(context)
         try {
             if (ball.initError != null && pose.initError != null) {
@@ -173,12 +182,23 @@ class ShotAnalyzer(private val context: Context) {
                         if (sample == null) {
                             val seed = options.seedPoint
                             val tD = System.currentTimeMillis()
-                            val det = if (frames == 0 && seed != null && tracker.init(scaled, seed)) {
+                            var det = if (frames == 0 && seed != null && tracker.init(scaled, seed)) {
                                 BallSample(t, seed, 1f)
                             } else {
                                 // 自训模型可用时不再跑 MediaPipe（后者召回只有 3%，纯浪费算力）
                                 val y = if (yolo.initError == null) yolo.detect(scaled) else null
                                 if (yolo.initError != null) (y ?: ball.detect(scaled)) else y
+                            }
+                            var colorSeed: Pair<NPt, Float>? = null
+                            if (det == null && frames % 2 == 0) {
+                                val players = if (lastPersons.isNotEmpty()) lastPersons else listOfNotNull(lastPerson)
+                                colorSeed = colorFinder.find(scaled, players)
+                                if (colorSeed != null && yoloPrecision.initError == null) {
+                                    val tPr = System.currentTimeMillis()
+                                    det = yoloPrecision.detect(scaled)
+                                    tPrecision += System.currentTimeMillis() - tPr; nPrecision++
+                                    if (det != null) precisionHits++
+                                }
                             }
                             detPos = det?.p
                             if (det != null) {
@@ -188,8 +208,7 @@ class ShotAnalyzer(private val context: Context) {
                                 sinceDetect = 0
                             } else {
                                 // CNN 没命中：用橙色先验补一个种子（篮球最稳的特征）
-                                val boxes = track.takeIf { it.isNotEmpty() }?.let { emptyList<NRect>() } ?: emptyList()
-                                val blob = if (frames % 2 == 0) colorFinder.find(scaled, boxes) else null
+                                val blob = colorSeed
                                 if (blob != null && tracker.init(scaled, blob.first, blob.second)) {
                                     sample = BallSample(t, blob.first, 0.5f, blob.second)
                                     colorHits++; sinceDetect = 0
@@ -246,14 +265,15 @@ class ShotAnalyzer(private val context: Context) {
                                 )
                             }
                             if (pbox != null && pboxDet == null) lastPerson = pbox
-                            // ---- 筐区 ROI 精检：构图不动，只在筐周围放大 5 倍再检测 ----
+                            // ---- 筐区 ROI 精检：构图不动，只在筐周围放大后再次检测 ----
                             // 你的机位必须覆盖三分线，筐只占 41px；命中最需要精度的地方恰恰是筐附近。
-                            // 做法：裁 6×筐宽的方块 → 放大到 320 → 单独检测 → 得到亚像素级球心。
+                            // 做法：裁 4.5×筐宽且最大 16% 画幅的方块，再单独检测球心。
                             var roiSample: NPt? = null
                             val ballNow = sample?.p ?: track.lastOrNull()?.p
                             val sampleConfidence = sample?.score ?: 0f
                             if (options.refineRimRoi &&
                                 yolo.initError == null &&
+                                hoopA.w * scaled.width >= RoiRefinementPolicy.MIN_RIM_PIXELS &&
                                 RoiRefinementPolicy.shouldRun(ballNow, sampleConfidence, hoopA)
                             ) {
                                 val cx = hoopA.cx
@@ -271,7 +291,7 @@ class ShotAnalyzer(private val context: Context) {
                                     val tR = System.currentTimeMillis()
                                     val rp = yolo.detect(roiScaled)
                                     tRoi += System.currentTimeMillis() - tR; nRoi++
-                                    if (rp != null && rp.score > 0.25f) {
+                                    if (rp != null && rp.score > 0.16f) {
                                         roiSample = NPt(
                                             (x0 + rp.p.x * w0) / scaled.width,
                                             (y0 + rp.p.y * h0) / scaled.height,
@@ -368,27 +388,35 @@ class ShotAnalyzer(private val context: Context) {
                 " person=" + (if (nPerson > 0) tPerson / nPerson else 0L) + "ms/" + nPerson +
                 " roi=" + (if (nRoi > 0) tRoi / nRoi else 0L) + "ms/" + nRoi +
                 " pose=" + (if (nPose > 0) tPose / nPose else 0L) + "ms/" + nPose +
-                " track=" + (if (nTrack > 0) tTrack / nTrack else 0L) + "ms/" + nTrack)
-            Log.i("ShotLab", "cuts=" + cuts + " done frames=" + frames + " detect=" + detectHits + " color=" + colorHits + " track=" + trackHits)
+                " track=" + (if (nTrack > 0) tTrack / nTrack else 0L) + "ms/" + nTrack +
+                " precision=" + (if (nPrecision > 0) tPrecision / nPrecision else 0L) + "ms/" + nPrecision)
+            Log.i(
+                "ShotLab",
+                "cuts=" + cuts + " done frames=" + frames + " detect=" + detectHits +
+                    " precision=" + precisionHits + " color=" + colorHits + " track=" + trackHits,
+            )
         } catch (t: Throwable) {
             Log.w("ShotLab", "analysis stopped", t)
             fatal = t.message ?: t.javaClass.simpleName
         } finally {
             try { clearBatch() } catch (_: Throwable) {}
             try { personDet.close() } catch (_: Throwable) {}
-            ball.close(); pose.close(); yolo.close()
+            ball.close(); pose.close(); yolo.close(); yoloPrecision.close()
             try { retriever.release() } catch (_: Throwable) {}
         }
 
 
         // ---- 轨迹法是最终出手、命中、类型和节奏的唯一来源 ----
         val engineRim = hoopFinal ?: hoop
-        val trackletEvents = TrackletEngine.run(
+        val trackletResult = TrackletEngine.runDetailed(
             obsFrames,
             engineRim,
             scaledW.takeIf { it > 0 } ?: 0,
             frameHForEngine,
+            options.homography,
         )
+        val trackletEvents = trackletResult.events
+        val finalRim = trackletResult.rim
         val summary = ShotAggregator.summarize(trackletEvents)
         try {
             val file = java.io.File(context.filesDir, "tracklet_dump.json")
@@ -398,8 +426,10 @@ class ShotAnalyzer(private val context: Context) {
                     analysisWidth = scaledW,
                     analysisHeight = frameHForEngine,
                     rim = engineRim,
+                    correctedRim = finalRim,
                     frames = obsFrames,
                     events = summary.events,
+                    rimAdjustedPx = trackletResult.rimAdjustedPx,
                 ),
             )
             Log.i("ShotLab", "tracklet dump written " + file.length() + " bytes")
@@ -443,10 +473,11 @@ class ShotAnalyzer(private val context: Context) {
             shots = shotLog,
             calibrated = options.homography != null,
             autoRim = options.autoDetected,
-            rimPx = (engineRim.w * (scaledW.takeIf { it > 0 } ?: 0)).toInt(),
+            rimPx = (finalRim.w * (scaledW.takeIf { it > 0 } ?: 0)).toInt(),
+            rimAdjustedPx = trackletResult.rimAdjustedPx,
             rimBallRatio = if (ballW.isEmpty()) 0f else {
                 val med = ballW.sorted()[ballW.size / 2]
-                val hw = engineRim.w
+                val hw = finalRim.w
                 if (med > 0f) hw / med else 0f
             },
             bestStreak = summary.bestStreak,

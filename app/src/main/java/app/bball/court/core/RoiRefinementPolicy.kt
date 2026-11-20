@@ -8,9 +8,15 @@ import kotlin.math.abs
  */
 object RoiRefinementPolicy {
 
-    private const val MIN_CONFIDENCE = 0.60f
+    const val MIN_RIM_PIXELS = 30f
 
-    fun roiHalf(rim: NRect): Float = (rim.w * 6f).coerceIn(0.08f, 0.30f)
+    private const val MIN_CONFIDENCE = 0.55f
+
+    /**
+     * 3.5 筐宽足够包住球心、筐圈和少量下落余量。
+     * 旧上限 0.30 会在大筐框时放大到近半个画面，既慢又让远处橙色干扰重新进入 ROI。
+     */
+    fun roiHalf(rim: NRect): Float = (rim.w * 3.5f).coerceIn(0.05f, 0.12f)
 
     fun shouldRun(ball: NPt?, confidence: Float, rim: NRect): Boolean {
         if (ball == null || confidence >= MIN_CONFIDENCE) return false

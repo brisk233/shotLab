@@ -31,7 +31,7 @@ object ReportExport {
                 .append(fmt(s.tMs)).append(',')
                 .append(s.type.name).append(',')
                 .append(if (s.made) "命中" else "不中").append(',')
-                .append(String.format(Locale.US, "%.2f", s.distanceM)).append(',')
+                .append(if (r.calibrated && s.distanceM > 0.01f) String.format(Locale.US, "%.2f", s.distanceM) else "").append(',')
                 .append(s.releaseAngle?.let { String.format(Locale.US, "%.1f", it) } ?: "").append(',')
                 .append(String.format(Locale.US, "%.2f", s.courtX)).append(',')
                 .append(String.format(Locale.US, "%.2f", s.courtY)).append('\n')
@@ -44,6 +44,12 @@ object ReportExport {
         sb.append("最长连铁,").append(r.bestMissStreak).append('\n')
         sb.append("平均出手间隔(s),").append(if (r.avgIntervalMs > 0) fmt(r.avgIntervalMs) else "-").append('\n')
         sb.append("上篮/两分/三分,").append(r.layupMade).append('/').append(r.twoMade).append('/').append(r.threeMade).append('\n')
+        if (r.rimAdjustedPx > 0) {
+            sb.append("筐框自动校正(px),").append(r.rimAdjustedPx).append('\n')
+        }
+        if (r.unknownAtt > 0) {
+            sb.append("未分类命中/出手,").append(r.unknownMade).append('/').append(r.unknownAtt).append('\n')
+        }
         return sb.toString()
     }
 

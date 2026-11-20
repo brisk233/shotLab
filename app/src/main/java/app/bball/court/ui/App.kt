@@ -801,7 +801,12 @@ private fun HistoryScreen(onBack: () -> Unit, onOpen: (ShotHistoryRecord) -> Uni
                         Text(
                             "${record.made} 中 / ${record.attempts} 次出手 · " +
                                 "两分 ${record.twoMade}/${record.twoAtt} · " +
-                                "三分 ${record.threeMade}/${record.threeAtt}",
+                                "三分 ${record.threeMade}/${record.threeAtt}" +
+                                if (record.unknownAtt > 0) {
+                                    " · 未分类 ${record.unknownMade}/${record.unknownAtt}"
+                                } else {
+                                    ""
+                                },
                             color = if (record.made > 0) Color(0xFF2EE6B0) else Dim,
                             fontSize = 12.sp,
                         )
@@ -940,10 +945,31 @@ private fun ReportScreen(
         }
         if (r.autoRim) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(6.dp).background(Color(0xFF2EE6B0), RoundedCornerShape(50)))
+                Box(
+                    Modifier.size(6.dp).background(
+                        if (r.calibrated) Color(0xFF2EE6B0) else Color(0xFFFFC857),
+                        RoundedCornerShape(50),
+                    ),
+                )
                 Spacer(Modifier.width(5.dp))
-                Text("已自动识别机位，无需标定", color = Color(0xFF2EE6B0), fontSize = 11.sp)
+                Text(
+                    if (r.calibrated) {
+                        "已自动识别机位，球场标定已生效"
+                    } else {
+                        "已自动识别篮筐；未做球场四点标定，类型按轨迹与筐宽比例估算"
+                    },
+                    color = if (r.calibrated) Color(0xFF2EE6B0) else Color(0xFFFFC857),
+                    fontSize = 11.sp,
+                )
             }
+            Spacer(Modifier.height(6.dp))
+        }
+        if (r.rimAdjustedPx > 0) {
+            Text(
+                "篮筐框中心已按真实穿筐轨迹自动校正 ${r.rimAdjustedPx} px",
+                color = Color(0xFFFFC857),
+                fontSize = 11.sp,
+            )
             Spacer(Modifier.height(6.dp))
         }
         Text("分析结果", color = Dim, fontSize = 13.sp)
@@ -966,6 +992,12 @@ private fun ReportScreen(
             Stat("三分", "${r.threeMade}/${r.threeAtt}")
             Stat("罚球", "${r.ftMade}/${r.ftAtt}")
         }
+        if (r.unknownAtt > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Stat("未分类", "${r.unknownMade}/${r.unknownAtt}")
+            }
+        }
         Spacer(Modifier.height(24.dp))
         Metric("平均出手角", r.avgReleaseAngle?.let { "${it.toInt()}°" } ?: "—")
         Metric("平均肘角", r.avgElbowAngle?.let { "${it.toInt()}°" } ?: "—")
@@ -974,7 +1006,12 @@ private fun ReportScreen(
         Spacer(Modifier.height(8.dp))
         if (r.framesAnalysed > 0 && r.rimPx > 0 && r.rimPx < 90) {
             Spacer(Modifier.height(8.dp))
-            Text("⚠ 篮筐只有 " + r.rimPx + " px（建议 ≥90）：命中判定会不稳。靠近拍摄、变焦 2.5 倍，或改录 4K。", color = Color(0xFFFFC857), fontSize = 11.sp, lineHeight = 15.sp)
+            Text(
+                "⚠ 篮筐只有 " + r.rimPx + " px（建议 ≥90）：低分辨率下按高弧下落轨迹计数，不用于区分打铁。靠近拍摄、变焦 2.5 倍，或改录 4K。",
+                color = Color(0xFFFFC857),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+            )
         }
         if (r.rimBallRatio > 2.1f) {
             Spacer(Modifier.height(8.dp))

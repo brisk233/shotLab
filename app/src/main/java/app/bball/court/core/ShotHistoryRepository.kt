@@ -34,7 +34,11 @@ data class ShotHistoryRecord(
     val bestMissStreak: Int,
     val avgIntervalMs: Long,
     val shots: List<ShotHistoryShot>,
-)
+    val rimAdjustedPx: Int = 0,
+) {
+    val unknownMade get() = (made - layupMade - twoMade - threeMade - ftMade).coerceAtLeast(0)
+    val unknownAtt get() = (attempts - layupAtt - twoAtt - threeAtt - ftAtt).coerceAtLeast(0)
+}
 
 /** 历史中保存的单次出手，不包含无法持久化的 Bitmap。 */
 data class ShotHistoryShot(

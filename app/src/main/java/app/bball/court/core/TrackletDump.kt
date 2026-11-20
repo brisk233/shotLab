@@ -11,8 +11,10 @@ object TrackletDump {
         analysisWidth: Int,
         analysisHeight: Int,
         rim: NRect,
+        correctedRim: NRect? = null,
         frames: List<TrackletEngine.FrameObs>,
         events: List<TrackletEngine.Event>,
+        rimAdjustedPx: Int = 0,
     ): String = buildString {
         append("{\"version\":1")
         append(",\"sourceFps\":").append(sourceFps)
@@ -21,6 +23,9 @@ object TrackletDump {
         append(",\"w\":").append(analysisWidth)
         append(",\"h\":").append(analysisHeight)
         append(",\"rim\":").appendRect(rim)
+        append(",\"correctedRim\":")
+        appendNullableRect(correctedRim)
+        append(",\"rimAdjustedPx\":").append(rimAdjustedPx)
         append(",\"frames\":[")
         frames.forEachIndexed { frameIndex, frame ->
             if (frameIndex > 0) append(',')

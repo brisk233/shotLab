@@ -5,6 +5,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Log
 import java.nio.FloatBuffer
 import kotlin.math.max
@@ -17,13 +20,20 @@ import kotlin.math.min
  * （"only supported on Linux x86 and macOS"），ONNX 是 Windows 上唯一能导出的通用格式，
  * 而 ONNX Runtime Android 一个 AAR 就能跑，正好对应。
  *
- * 模型：assets/ball_yolo.onnx（320x320，单类 ball，输出 [1,5,N]）
+ * 默认模型：assets/ball_yolo.onnx（416x416，单类 ball，输出 [1,5,N]）。
+ * 该版本从旧 512 模型增量训练，保留 360p 高弧球召回，同时减少约三分之一网络计算。
+ * 同一实现也用于 assets/ball_precision.onnx（旧 512 精准回补模型）。
  */
 @Suppress("UNCHECKED_CAST")
 class YoloBallDetector(
     context: Context,
     assetName: String = "ball_yolo.onnx",
-    private val confThreshold: Float = 0.25f,
+    /**
+     * 416 增量模型的置信度分布比旧 512 模型更保守；0.08 在实测集上把召回
+     * 从旧模型 0.25 阈值时的约 61% 提升到 70%，误报率仍从约 64% 降到 60%，
+     * 最终轨迹还会过滤持球、静止色块和伪弧线。
+     */
+    private val confThreshold: Float = 0.08f,
     private val iouThreshold: Float = 0.45f,
 ) : AutoCloseable {
 
@@ -40,6 +50,11 @@ class YoloBallDetector(
     private var numAnchors = 0
     private var numClasses = 1
     private var transposed = true
+    private var pixels: IntArray? = null
+    private var inputData: FloatArray? = null
+    private var modelBitmap: Bitmap? = null
+    private var modelCanvas: Canvas? = null
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
 
     init {
         try {
@@ -60,6 +75,10 @@ class YoloBallDetector(
             val sh = outInfo.shape
             if (sh[1] < sh[2]) { numClasses = sh[1].toInt() - 4; numAnchors = sh[2].toInt(); transposed = true }
             else { numAnchors = sh[1].toInt(); numClasses = sh[2].toInt() - 4; transposed = false }
+            pixels = IntArray(inputW * inputH)
+            inputData = FloatArray(3 * inputW * inputH)
+            modelBitmap = Bitmap.createBitmap(inputW, inputH, Bitmap.Config.ARGB_8888)
+            modelCanvas = Canvas(modelBitmap!!)
             Log.i("ShotLab", "onnx ready in=${inputW}x${inputH} anchors=${numAnchors} cls=${numClasses} transposed=${transposed}")
         } catch (t: Throwable) {
             initError = t.message ?: t.javaClass.simpleName
@@ -70,12 +89,21 @@ class YoloBallDetector(
     fun detect(bitmap: Bitmap): BallSample? {
         val s = session ?: return null
         val e = env ?: return null
+        val px = pixels ?: return null
+        val data = inputData ?: return null
+        val target = modelBitmap ?: return null
+        val canvas = modelCanvas ?: return null
         val transform = Letterbox.fit(bitmap.width, bitmap.height, inputW, inputH)
-        val modelBitmap = transform.toModelBitmap(bitmap)
+        val resized = try {
+            Bitmap.createScaledBitmap(bitmap, transform.resizedWidth, transform.resizedHeight, true)
+        } catch (t: Throwable) {
+            Log.w("ShotLab", "onnx letterbox resize failed", t)
+            return null
+        }
         return try {
-            val px = IntArray(inputW * inputH)
-            modelBitmap.getPixels(px, 0, inputW, 0, 0, inputW, inputH)
-            val data = FloatArray(3 * inputW * inputH)
+            target.eraseColor(Color.rgb(114, 114, 114))
+            canvas.drawBitmap(resized, transform.padX, transform.padY, paint)
+            target.getPixels(px, 0, inputW, 0, 0, inputW, inputH)
             val plane = inputW * inputH
             for (i in px.indices) {
                 val c = px[i]
@@ -113,7 +141,7 @@ class YoloBallDetector(
         } catch (t: Throwable) {
             Log.w("ShotLab", "onnx detect failed", t); null
         } finally {
-            if (!modelBitmap.isRecycled) modelBitmap.recycle()
+            if (resized !== bitmap && !resized.isRecycled) resized.recycle()
         }
     }
 
@@ -139,6 +167,11 @@ class YoloBallDetector(
     }
 
     override fun close() {
+        try { modelBitmap?.recycle() } catch (_: Throwable) {}
+        modelBitmap = null
+        modelCanvas = null
+        pixels = null
+        inputData = null
         try { session?.close() } catch (_: Throwable) {}
         try { env?.close() } catch (_: Throwable) {}
     }

@@ -4,6 +4,7 @@ import app.bball.court.core.NPt
 import app.bball.court.core.NRect
 import app.bball.court.core.RoiRefinementPolicy
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,5 +30,12 @@ class RoiRefinementPolicyTest {
     @Test
     fun missingSampleUsesLastKnownPointForRecovery() {
         assertTrue(RoiRefinementPolicy.shouldRun(NPt(0.62f, 0.35f), 0f, rim))
+    }
+
+    @Test
+    fun largeRimRoiIsCappedToAvoidFullFrameInference() {
+        val largeRim = NRect(0.20f, 0.20f, 0.50f, 0.30f)
+
+        assertEquals(0.12f, RoiRefinementPolicy.roiHalf(largeRim), 0.0001f)
     }
 }

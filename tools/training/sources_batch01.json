@@ -1,0 +1,192 @@
+[
+  {
+    "bvid": "BV12cN4eRETw",
+    "title": "投篮训练——突分投篮训练",
+    "split": "train",
+    "scene": "多人突分",
+    "notes": "多人、传球后出手",
+    "url": "https://www.bilibili.com/video/BV12cN4eRETw",
+    "author": "枫香街转角",
+    "durationSec": 237
+  },
+  {
+    "bvid": "BV1H84y1F78q",
+    "title": "一套得分后卫的专属投篮训练",
+    "split": "train",
+    "scene": "个人训练",
+    "notes": "高位固定机位，夹有讲解",
+    "url": "https://www.bilibili.com/video/BV1H84y1F78q",
+    "author": "隐藏宝石HiddenGems",
+    "durationSec": 307
+  },
+  {
+    "bvid": "BV1JU4y1H7Sw",
+    "title": "保罗乔治赛前投篮训练",
+    "split": "train",
+    "scene": "多人赛前训练",
+    "notes": "远景、多人、不同篮球馆",
+    "url": "https://www.bilibili.com/video/BV1JU4y1H7Sw",
+    "author": "PG-SPACE",
+    "durationSec": 444
+  },
+  {
+    "bvid": "BV1Qx411m7Ky",
+    "title": "30天魔鬼投篮训练第一天",
+    "split": "train",
+    "scene": "接球跳投",
+    "notes": "训练段落与讲解切换",
+    "url": "https://www.bilibili.com/video/BV1Qx411m7Ky",
+    "author": "球痞小黑字幕组",
+    "durationSec": 565
+  },
+  {
+    "bvid": "BV1sV4y1W7hU",
+    "title": "日本全国冠军福冈第一投篮训练",
+    "split": "train",
+    "scene": "接球跳投",
+    "notes": "多段机位与球员服装",
+    "url": "https://www.bilibili.com/video/BV1sV4y1W7hU",
+    "author": "卡咯西西里",
+    "durationSec": 569
+  },
+  {
+    "bvid": "BV1TgiDBLEyR",
+    "title": "贾马尔穆雷赛前投篮训练",
+    "split": "train",
+    "scene": "赛前训练",
+    "notes": "NBA 球馆、多人、远景",
+    "url": "https://www.bilibili.com/video/BV1TgiDBLEyR",
+    "author": "篮球传道士-",
+    "durationSec": 625
+  },
+  {
+    "bvid": "BV1VDsSeJE8A",
+    "title": "Bam Adebayo 全能前锋得分训练",
+    "split": "train",
+    "scene": "个人技术训练",
+    "notes": "室内训练、少量片头切镜",
+    "url": "https://www.bilibili.com/video/BV1VDsSeJE8A",
+    "author": "Rowfit体能训练",
+    "durationSec": 1046
+  },
+  {
+    "bvid": "BV1qg411P7Qq",
+    "title": "突破+投篮校队训练",
+    "split": "train",
+    "scene": "多人校队训练",
+    "notes": "多人、远机位",
+    "url": "https://www.bilibili.com/video/BV1qg411P7Qq",
+    "author": "Rowfit体能训练",
+    "durationSec": 582
+  },
+  {
+    "bvid": "BV183sh6YET2",
+    "title": "站投三分",
+    "split": "val",
+    "scene": "三分定点",
+    "notes": "固定机位，含镜头外出手",
+    "url": "https://www.bilibili.com/video/BV183sh6YET2",
+    "author": "BBQ小老鼠",
+    "durationSec": 146
+  },
+  {
+    "bvid": "BV1WC4y1x7E2",
+    "title": "高度模拟实战投篮训练",
+    "split": "val",
+    "scene": "个人实战化训练",
+    "notes": "讲解和训练交替",
+    "url": "https://www.bilibili.com/video/BV1WC4y1x7E2",
+    "author": "篮球实战宝典",
+    "durationSec": 347
+  },
+  {
+    "bvid": "BV1YFsJ63EFj",
+    "title": "顶级投篮训练视频",
+    "split": "val",
+    "scene": "个人投篮",
+    "notes": "短素材、固定长镜头",
+    "url": "https://www.bilibili.com/video/BV1YFsJ63EFj",
+    "author": "HuHaoHangtime",
+    "durationSec": 81
+  },
+  {
+    "bvid": "BV1BinQ6wEKR",
+    "title": "投篮馆一镜到底：跳投11/12，罚球15/15",
+    "split": "test",
+    "scene": "低分辨率一镜到底",
+    "notes": "标题给出出手与命中真值，作为核心射击级回归样本",
+    "url": "https://www.bilibili.com/video/BV1BinQ6wEKR",
+    "author": "小李不会扣篮_",
+    "durationSec": 160
+  },
+  {
+    "bvid": "BV1Q64y1D7GL",
+    "title": "NBA全明星三分球大赛",
+    "split": "test",
+    "scene": "三分大赛",
+    "notes": "转播切镜、命中与不中混合",
+    "url": "https://www.bilibili.com/video/BV1Q64y1D7GL",
+    "author": "刘华强本强-",
+    "durationSec": 633
+  },
+  {
+    "bvid": "BV1qT4y187nd",
+    "title": "戈贝尔罚球连续三不沾",
+    "split": "test",
+    "scene": "罚球不中",
+    "notes": "转播、口播和回放混合",
+    "url": "https://www.bilibili.com/video/BV1qT4y187nd",
+    "author": "o你跺你也麻o",
+    "durationSec": 165
+  },
+  {
+    "bvid": "BV1VB4y1h7VL",
+    "title": "女篮球队训练",
+    "split": "test",
+    "scene": "女篮多人训练",
+    "notes": "多人、不同动作",
+    "url": "https://www.bilibili.com/video/BV1VB4y1h7VL",
+    "author": "賸利篮球",
+    "durationSec": 342
+  },
+  {
+    "bvid": "BV1Ju4cznEcP",
+    "title": "投篮打铁短素材",
+    "split": "test",
+    "scene": "不中短视频",
+    "notes": "口播和特写较多，用于抗误报",
+    "url": "https://www.bilibili.com/video/BV1Ju4cznEcP",
+    "author": "陈林夕07",
+    "durationSec": 56
+  },
+  {
+    "bvid": "BV1mD4y167DQ",
+    "title": "库里、特雷杨等球星训练赛",
+    "split": "test",
+    "scene": "多人训练赛",
+    "notes": "频繁切镜和观众干扰",
+    "url": "https://www.bilibili.com/video/BV1mD4y167DQ",
+    "author": "Winslow街区",
+    "durationSec": 525
+  },
+  {
+    "bvid": "BV1tWsq6UEoN",
+    "title": "Jared McCain 与 Cason Wallace 完整NBA训练",
+    "split": "test",
+    "scene": "完整NBA训练",
+    "notes": "长视频、多机位、多人",
+    "url": "https://www.bilibili.com/video/BV1tWsq6UEoN",
+    "author": "Pakuooo",
+    "durationSec": 2022
+  },
+  {
+    "bvid": "BV1zHL26BEa6",
+    "title": "周锐热身连续罚球",
+    "split": "test",
+    "scene": "罚球",
+    "notes": "篮筐未入镜，适合负样本和人物干扰测试",
+    "url": "https://www.bilibili.com/video/BV1zHL26BEa6",
+    "author": "篮球阿诺冥",
+    "durationSec": 288
+  }
+]

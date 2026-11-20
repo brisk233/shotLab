@@ -121,14 +121,26 @@ object Geometry {
 
 /** 出手类型（用篮筐实际宽度 45cm 反推米制距离）。 */
 enum class ShotType(val label: String) {
-    LAYUP("上篮"), TWO("两分"), THREE("三分"), FREE_THROW("罚球");
+    LAYUP("上篮"), TWO("两分"), THREE("三分"), FREE_THROW("罚球"), UNKNOWN("未分类");
 
     companion object {
+        /**
+         * 未做球场单应标定时的保守估算。
+         * 使用出手点到校正筐口的像素距离除以筐宽，抵消镜头缩放后再分段。
+         */
+        fun estimateFromRimRatio(ratio: Float): ShotType = when {
+            !ratio.isFinite() -> UNKNOWN
+            ratio <= 2.0f -> LAYUP
+            ratio >= 4.8f -> THREE
+            else -> TWO
+        }
+
         /**
          * @param releaseX/releaseY 出手点（归一化坐标）
          * @param rim 用户框定的篮筐（归一化）
          * @param rimRealWidthM 篮筐内径，FIBA/NBA 都是 0.45 m
          */
+        @Deprecated("未做球场单应标定时禁止用画面像素距离猜测投篮类型")
         fun classify(releaseX: Float, releaseY: Float, rim: NRect, rimRealWidthM: Float = 0.45f): ShotType {
             if (rim.w <= 0.001f) return TWO
             // 框宽 ≈ 篮筐内径 45cm → 归一化像素差除以框宽就是"多少个筐宽"
@@ -189,10 +201,14 @@ data class ShotReport(
     val rimBallRatio: Float = 0f,
     /** 筐框宽度（像素）——命中判定的空间分辨率指标，<90px 就不稳。 */
     val rimPx: Int = 0,
+    /** 穿筐轨迹把机位记忆中的筐框自动校正了多少像素。 */
+    val rimAdjustedPx: Int = 0,
     val bestStreak: Int = 0,
     val bestMissStreak: Int = 0,
     val avgIntervalMs: Long = 0L,
 ) {
     val missed get() = (attempts - made).coerceAtLeast(0)
     val accuracy get() = if (attempts == 0) 0f else made.toFloat() / attempts
+    val unknownMade get() = (made - layupMade - twoMade - threeMade - ftMade).coerceAtLeast(0)
+    val unknownAtt get() = (attempts - layupAtt - twoAtt - threeAtt - ftAtt).coerceAtLeast(0)
 }

@@ -40,8 +40,10 @@ class TrackletDumpTest {
                 analysisWidth = 720,
                 analysisHeight = 405,
                 rim = NRect(0.625f, 0.322f, 0.663f, 0.352f),
+                correctedRim = NRect(0.620f, 0.300f, 0.658f, 0.330f),
                 frames = frames,
                 events = events,
+                rimAdjustedPx = 56,
             ),
         ).asJsonObject
 
@@ -49,7 +51,9 @@ class TrackletDumpTest {
         assertEquals(60.0, root.get("sourceFps").asDouble, 0.0)
         assertEquals(720, root.get("w").asInt)
         assertEquals(405, root.get("h").asInt)
+        assertEquals(56, root.get("rimAdjustedPx").asInt)
         assertEquals(0.625, root.getAsJsonArray("rim")[0].asDouble, 0.00001)
+        assertEquals(0.620, root.getAsJsonArray("correctedRim")[0].asDouble, 0.00001)
         assertEquals(0.1, root.getAsJsonArray("frames")[0].asJsonObject.get("t").asDouble, 0.00001)
         val candidate = root.getAsJsonArray("frames")[0].asJsonObject.getAsJsonArray("cands")[0].asJsonArray
         assertEquals(0.5, (candidate[0].asDouble + candidate[2].asDouble) / 2.0, 0.00001)

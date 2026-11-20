@@ -27,7 +27,11 @@ class ShotAggregatorTest {
             val events = TrackletEngine.run(parsed.frames, rim, parsed.width, parsed.height)
             val summary = ShotAggregator.summarize(events)
             assertEquals("$fixture attempts", expectedAttempts, summary.attempts)
-            assertEquals("$fixture made", expectedMade, summary.made)
+            assertEquals(
+                "$fixture made: " + events.joinToString { "${it.releaseMs}:${it.made}" },
+                expectedMade,
+                summary.made,
+            )
             assertEquals("$fixture event order", summary.events.sortedBy { it.releaseMs }, summary.events)
         }
     }
@@ -50,17 +54,29 @@ class ShotAggregatorTest {
     }
 
     @Test
-    fun androidTwoShotRegressionKeepsReleasePointBeforeRim() {
+    fun separateShotsAboutOneSecondApartAreKept() {
+        val first = event(1_000, made = true, ShotType.TWO)
+        val second = event(2_100, made = false, ShotType.TWO)
+
+        val summary = ShotAggregator.summarize(listOf(first, second))
+
+        assertEquals("1.1 秒间隔可能是两次连续快投", 2, summary.attempts)
+        assertEquals(1, summary.made)
+    }
+
+    @Test
+    fun uncalibratedAndroidFixtureEstimatesShotTypes() {
         val parsed = loadFixture("android_two_round1.json")
         val events = TrackletEngine.run(parsed.frames, rim, parsed.width, parsed.height)
         val summary = ShotAggregator.summarize(events)
 
-        assertEquals(5, summary.attempts)
-        assertEquals(2, summary.made)
+        val debugEvents = events.joinToString { "${it.releaseMs}:${it.made}:${it.distM}:${it.type}" }
+        assertEquals("unexpected attempts: $debugEvents", 5, summary.attempts)
+        assertEquals("unexpected makes: $debugEvents", 2, summary.made)
         assertTrue(
-            "first release must stay in the two-point distance band: " +
+            "uncalibrated shot types must be estimated: " +
                 events.joinToString { "${it.releaseMs}:${it.type}:${it.distM}" },
-            events.all { it.type == ShotType.TWO },
+            events.all { it.type != ShotType.UNKNOWN && it.distM == 0f },
         )
     }
 
