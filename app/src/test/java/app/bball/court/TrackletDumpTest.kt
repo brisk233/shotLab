@@ -1,6 +1,7 @@
 package app.bball.court
 
 import app.bball.court.core.NRect
+import app.bball.court.core.RimTrackPoint
 import app.bball.court.core.ShotType
 import app.bball.court.core.TrackletDump
 import app.bball.court.core.TrackletEngine
@@ -20,6 +21,7 @@ class TrackletDumpTest {
                 cands = listOf(TrackletEngine.Obs(100L, 0.5f, 0.4f, 0.91f)),
                 person = person,
                 persons = listOf(person),
+                segment = 2,
             ),
         )
         val events = listOf(
@@ -31,6 +33,7 @@ class TrackletDumpTest {
                 y = 0.4f,
                 distM = 3.2f,
                 type = ShotType.TWO,
+                segment = 2,
             ),
         )
 
@@ -41,6 +44,14 @@ class TrackletDumpTest {
                 analysisHeight = 405,
                 rim = NRect(0.625f, 0.322f, 0.663f, 0.352f),
                 correctedRim = NRect(0.620f, 0.300f, 0.658f, 0.330f),
+                rimTrack = listOf(
+                    RimTrackPoint(
+                        tMs = 100L,
+                        rim = NRect(0.621f, 0.301f, 0.659f, 0.331f),
+                        confidence = 0.88f,
+                        segment = 2,
+                    ),
+                ),
                 frames = frames,
                 events = events,
                 rimAdjustedPx = 56,
@@ -54,7 +65,12 @@ class TrackletDumpTest {
         assertEquals(56, root.get("rimAdjustedPx").asInt)
         assertEquals(0.625, root.getAsJsonArray("rim")[0].asDouble, 0.00001)
         assertEquals(0.620, root.getAsJsonArray("correctedRim")[0].asDouble, 0.00001)
+        assertEquals(0.621, root.getAsJsonArray("rimTrack")[0].asJsonObject
+            .getAsJsonArray("rim")[0].asDouble, 0.00001)
+        assertEquals(2, root.getAsJsonArray("rimTrack")[0].asJsonObject
+            .get("segment").asInt)
         assertEquals(0.1, root.getAsJsonArray("frames")[0].asJsonObject.get("t").asDouble, 0.00001)
+        assertEquals(2, root.getAsJsonArray("frames")[0].asJsonObject.get("segment").asInt)
         val candidate = root.getAsJsonArray("frames")[0].asJsonObject.getAsJsonArray("cands")[0].asJsonArray
         assertEquals(0.5, (candidate[0].asDouble + candidate[2].asDouble) / 2.0, 0.00001)
         assertEquals(0.91, candidate[4].asDouble, 0.00001)
@@ -62,6 +78,7 @@ class TrackletDumpTest {
             .getAsJsonArray("persons")[0].asJsonArray[0].asDouble, 0.00001)
         assertEquals(100, root.getAsJsonArray("events")[0].asJsonObject
             .get("releaseMs").asLong)
+        assertEquals(2, root.getAsJsonArray("events")[0].asJsonObject.get("segment").asInt)
         assertTrue(root.getAsJsonArray("events")[0].asJsonObject.get("made").asBoolean)
     }
 }

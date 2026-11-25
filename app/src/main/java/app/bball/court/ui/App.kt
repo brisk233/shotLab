@@ -106,8 +106,16 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
 
     // Test/debug entry: `adb shell am start ... -e video /sdcard/Download/x.mp4`
     // 统一的"开始分析"入口：报告页/自动套用/手动标定都走这里
-    fun startAnalysis(uri: Uri, rim: NRect, seed: NPt? = null, frame: Bitmap? = null) {
-        frame?.let { f ->
+    fun startAnalysis(
+        uri: Uri,
+        rim: NRect,
+        seed: NPt? = null,
+        frame: Bitmap? = null,
+        autoDetected: Boolean = false,
+        rememberRim: Boolean = true,
+        rimInputTrusted: Boolean = true,
+    ) {
+        if (rememberRim) frame?.let { f ->
             try { app.bball.court.core.RimStore.save(ctx, app.bball.court.core.SceneCut.signature(f), rim) } catch (_: Throwable) {}
             // 顺带攒训练样本（A 的确认动作 → B 的数据集）
             try { app.bball.court.core.RimSampleStore.save(ctx, f, rim, tag = if (initialRim == null) "ui" else "adb") } catch (_: Throwable) {}
@@ -115,13 +123,37 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
         screen = Screen.Analyzing(uri, rim, 0f, ShotReport())
         scope.launch {
             try {
-                val report = analyzer.analyze(uri, rim, ShotAnalyzer.Options(seedPoint = seed, homography = court, autoDetected = initialRim == null)) { p, live ->
+                val report = analyzer.analyze(
+                    uri,
+                    rim,
+                    ShotAnalyzer.Options(
+                        seedPoint = seed,
+                        homography = court,
+                        autoDetected = autoDetected,
+                        rimInputTrusted = rimInputTrusted,
+                    ),
+                ) { p, live ->
                     screen = Screen.Analyzing(uri, rim, p, live)
                 }
                 finishAnalysis(uri, report)
             } catch (t: Throwable) {
                 screen = Screen.Failed("分析失败", (t.message ?: t.javaClass.simpleName))
             }
+        }
+    }
+
+    fun autoRim(frame: Bitmap): NRect? {
+        val candidates = app.bball.court.core.RimCandidateFinder.findCandidates(frame)
+        val point = app.bball.court.core.DynamicRimCalibrator().update(0L, candidates)
+        return point?.takeIf { it.confidence >= 0.34f }?.rim
+    }
+
+    fun rimOverride(): NRect? {
+        val values = initialRim?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }
+        return if (values != null && values.size == 4) {
+            NRect(values[0], values[1], values[2], values[3])
+        } else {
+            null
         }
     }
 
@@ -135,8 +167,21 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                 } else {
                     val sig = app.bball.court.core.SceneCut.signature(frame)
                     val remembered = app.bball.court.core.RimStore.find(ctx, sig)
-                    if (remembered != null) startAnalysis(uri, remembered, null, frame)
-                    else screen = Screen.Calibrate(uri, frame)
+                    val override = rimOverride()
+                    val detected = if (remembered == null && override == null) autoRim(frame) else null
+                    when {
+                        override != null -> startAnalysis(
+                            uri, override, frame = frame, rememberRim = false,
+                        )
+                        remembered != null -> startAnalysis(
+                            uri, remembered, frame = frame, autoDetected = true,
+                        )
+                        detected != null -> startAnalysis(
+                            uri, detected, frame = frame, autoDetected = true,
+                            rememberRim = false, rimInputTrusted = false,
+                        )
+                        else -> screen = Screen.Calibrate(uri, frame)
+                    }
                 }
             } catch (t: Throwable) {
                 screen = Screen.Failed("读取视频失败", t.message ?: t.javaClass.simpleName)
@@ -154,8 +199,21 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                     // 机位指纹匹配：同一机位直接分析，不再让用户标定
                     val sig = app.bball.court.core.SceneCut.signature(frame)
                     val remembered = app.bball.court.core.RimStore.find(ctx, sig)
-                    if (remembered != null) startAnalysis(uri, remembered, null, frame)
-                    else screen = Screen.Calibrate(uri, frame)
+                    val override = rimOverride()
+                    val detected = if (remembered == null && override == null) autoRim(frame) else null
+                    when {
+                        override != null -> startAnalysis(
+                            uri, override, frame = frame, rememberRim = false,
+                        )
+                        remembered != null -> startAnalysis(
+                            uri, remembered, frame = frame, autoDetected = true,
+                        )
+                        detected != null -> startAnalysis(
+                            uri, detected, frame = frame, autoDetected = true,
+                            rememberRim = false, rimInputTrusted = false,
+                        )
+                        else -> screen = Screen.Calibrate(uri, frame)
+                    }
                 }
             } catch (t: Throwable) {
                 screen = Screen.Failed("读取视频失败", t.message ?: t.javaClass.simpleName)
@@ -215,7 +273,16 @@ fun ShotLabApp(initialVideoPath: String? = null, initialAtMs: Long = 0L, initial
                     screen = Screen.Analyzing(s.uri, hoop, 0f, ShotReport())
                     scope.launch {
                         try {
-                            val report = analyzer.analyze(s.uri, hoop, ShotAnalyzer.Options(seedPoint = seed, homography = court)) { p, live ->
+                            val report = analyzer.analyze(
+                                s.uri,
+                                hoop,
+                                ShotAnalyzer.Options(
+                                    seedPoint = seed,
+                                    homography = court,
+                                    autoDetected = false,
+                                    rimInputTrusted = true,
+                                ),
+                            ) { p, live ->
                                 screen = Screen.Analyzing(s.uri, hoop, p, live)
                             }
                             finishAnalysis(s.uri, report)

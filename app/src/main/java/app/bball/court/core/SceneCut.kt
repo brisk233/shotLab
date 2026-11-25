@@ -14,7 +14,8 @@ object SceneCut {
 
     private const val GRID = 8
     private const val CELL_DIFF = 26          // 单格亮度差
-    private const val CUT_RATIO = 0.42f       // 变化格占比超过这个就判切镜
+    private const val CUT_RATIO = 0.50f       // 变化格占比超过这个就判切镜
+    private const val MIN_CUT_INTERVAL_MS = 500L
 
     fun signature(bmp: Bitmap): FloatArray {
         // 先缩到 GRID×GRID（一次缩放开销远小于逐点 getPixel）
@@ -35,5 +36,22 @@ object SceneCut {
         var changed = 0
         for (i in prev.indices) if (abs(prev[i] - cur[i]) > CELL_DIFF) changed++
         return changed.toFloat() / prev.size > CUT_RATIO
+    }
+
+    /**
+     * 镜头缩放、快速横移和局部遮挡也可能让单帧差异突然变大。
+     * 真正硬切仍会立即通过，但 500ms 内重复变化只保留第一次，避免动态筐被连续重置。
+     */
+    class Gate(
+        private val minIntervalMs: Long = MIN_CUT_INTERVAL_MS,
+    ) {
+        private var lastAcceptedMs = Long.MIN_VALUE / 2
+
+        fun update(tMs: Long, prev: FloatArray?, cur: FloatArray): Boolean {
+            if (!isCut(prev, cur)) return false
+            if (tMs - lastAcceptedMs < minIntervalMs) return false
+            lastAcceptedMs = tMs
+            return true
+        }
     }
 }

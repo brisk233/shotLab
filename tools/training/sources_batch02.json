@@ -1,0 +1,152 @@
+[
+  {
+    "bvid": "BV1a6gL64EKq",
+    "title": "德文布克完整赛前投篮热身",
+    "split": "train",
+    "scene": "NBA球馆赛前热身",
+    "notes": "职业球员、宽广机位、赛事记分屏背景",
+    "url": "https://www.bilibili.com/video/BV1a6gL64EKq",
+    "author": "Essential_Skills",
+    "durationSec": 548
+  },
+  {
+    "bvid": "BV1Nx1BYzECo",
+    "title": "克莱汤普森投篮训练",
+    "split": "train",
+    "scene": "NBA训练馆投篮",
+    "notes": "连续中远投、训练师与多人干扰",
+    "url": "https://www.bilibili.com/video/BV1Nx1BYzECo",
+    "author": "阿前ReStep",
+    "durationSec": 1036
+  },
+  {
+    "bvid": "BV1Qx4y1G7TX",
+    "title": "邓肯罗宾逊训练全记录",
+    "split": "train",
+    "scene": "职业射手训练",
+    "notes": "快节奏连续投篮、不同训练点位",
+    "url": "https://www.bilibili.com/video/BV1Qx4y1G7TX",
+    "author": "篮球传道士-",
+    "durationSec": 525
+  },
+  {
+    "bvid": "BV1Mv411k7FL",
+    "title": "威金斯三分投篮训练",
+    "split": "train",
+    "scene": "NBA三分训练",
+    "notes": "固定侧机位、连续三分、球场灯光复杂",
+    "url": "https://www.bilibili.com/video/BV1Mv411k7FL",
+    "author": "亚军篮界",
+    "durationSec": 579
+  },
+  {
+    "bvid": "BV1hYbJzYE4d",
+    "title": "日本女篮投篮训练记录",
+    "split": "train",
+    "scene": "女篮多人训练",
+    "notes": "女性球员、多人轮转、室内暖色灯光",
+    "url": "https://www.bilibili.com/video/BV1hYbJzYE4d",
+    "author": "枫香街转角",
+    "durationSec": 538
+  },
+  {
+    "bvid": "BV1AC4y1u74K",
+    "title": "青少年篮球投篮训练",
+    "split": "train",
+    "scene": "青少年女篮训练",
+    "notes": "青少年球员、训练师讲解与实战交替",
+    "url": "https://www.bilibili.com/video/BV1AC4y1u74K",
+    "author": "升班马运动科学",
+    "durationSec": 704
+  },
+  {
+    "bvid": "BV1P5yXzSEBT",
+    "title": "罚球100中96训练记录",
+    "split": "train",
+    "scene": "连续罚球",
+    "notes": "固定机位、篮球近景、篮筐占比大",
+    "url": "https://www.bilibili.com/video/BV1P5yXzSEBT",
+    "author": "酷理头岚胞",
+    "durationSec": 299
+  },
+  {
+    "bvid": "BV1snjbzJERe",
+    "title": "成都户外球场一人投篮",
+    "split": "train",
+    "scene": "室外公园球场",
+    "notes": "自然光、树木背景、篮球远小目标",
+    "url": "https://www.bilibili.com/video/BV1snjbzJERe",
+    "author": "乐天派Taigu",
+    "durationSec": 103
+  },
+  {
+    "bvid": "DYNRIM001",
+    "title": "手持动态篮筐跟拍样例",
+    "split": "train",
+    "scene": "手持动态跟拍",
+    "notes": "用户提供、机位横移、篮筐回球网和快速连续出手",
+    "url": "local:dynamic_rim_sample",
+    "author": "user",
+    "durationSec": 15
+  },
+  {
+    "bvid": "BV1my41187Qw",
+    "title": "凯特琳克拉克赛前投篮训练",
+    "split": "val",
+    "scene": "WNBA赛前热身",
+    "notes": "职业女篮、转播机位、连续投射",
+    "url": "https://www.bilibili.com/video/BV1my41187Qw",
+    "author": "北美篮球社",
+    "durationSec": 386
+  },
+  {
+    "bvid": "BV1RqyRzrE2J",
+    "title": "申京赛前投篮热身",
+    "split": "val",
+    "scene": "竖屏NBA赛前训练",
+    "notes": "竖屏、近距离人物、动态手持机位",
+    "url": "https://www.bilibili.com/video/BV1RqyRzrE2J",
+    "author": "庞博的篮球仓库",
+    "durationSec": 64
+  },
+  {
+    "bvid": "BV1Fd6mYGEvc",
+    "title": "三分钟投篮比赛",
+    "split": "val",
+    "scene": "个人投篮比赛",
+    "notes": "非职业球馆、快速连续投篮、画面有记分叠加",
+    "url": "https://www.bilibili.com/video/BV1Fd6mYGEvc",
+    "author": "林深雾的小号",
+    "durationSec": 187
+  },
+  {
+    "bvid": "BV1vs4y1q7T7",
+    "title": "布克热身与投篮训练",
+    "split": "test",
+    "scene": "NBA球馆赛前训练",
+    "notes": "独立职业球员训练视频、场馆与服装不同于训练来源",
+    "url": "https://www.bilibili.com/video/BV1vs4y1q7T7",
+    "author": "篮球名画馆",
+    "durationSec": 745
+  },
+  {
+    "bvid": "BV1jtrZYNE8N",
+    "title": "凯特琳克拉克新教练首次训练",
+    "split": "test",
+    "scene": "WNBA完整训练",
+    "notes": "独立女篮训练来源、多人轮转、不同灯光与机位",
+    "url": "https://www.bilibili.com/video/BV1jtrZYNE8N",
+    "author": "Meredith的手术帽儿",
+    "durationSec": 789
+  },
+  {
+    "bvid": "BV1WysF66EdA",
+    "title": "室外阳光水泥地篮球训练",
+    "split": "test",
+    "scene": "室外强光球场",
+    "notes": "独立室外测试来源、阳光与远距离小目标",
+    "url": "https://www.bilibili.com/video/BV1WysF66EdA",
+    "author": "HuHaoHangtime",
+    "durationSec": 65
+  }
+]

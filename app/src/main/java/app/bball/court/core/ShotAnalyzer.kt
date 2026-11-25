@@ -18,8 +18,10 @@ import kotlin.math.hypot
  *   A（检测）：416 YOLO 主检给跟踪器可信绝对位置；主检丢失且存在橙色篮球先验时，
  *              再用 512 YOLO 做一次精准回补。MediaPipe 仅在 ONNX 不可用时兜底。
  *   B（跟踪）：TemplateTracker，中间帧做 NCC 局部搜索 + 匀速预测，几毫秒一帧。
+ *   R（篮筐）：手持视频按动态框候选 + 速度预测持续校准；切镜或长时丢检后重新捕获。
+ *   F（飞行球）：橙色连通域补高空漏检，回球网反程由轨迹引擎剥离。
  *
- * 两者写进同一条 track 缓冲，抛物线拟合只认这一条序列；检测只负责校正，
+ * 球候选写进同一条 track 缓冲，抛物线拟合只认这一条序列；检测只负责校正，
  * 因此不会出现"两条不同精度的数据打架"。
  *
  * 全链路 try/catch：一帧解不出来、一次推理抛异常，都只降低结果质量，不让 App 死。
@@ -43,8 +45,14 @@ class ShotAnalyzer(private val context: Context) {
         val seedPoint: NPt? = null,
         /** 球场四点标定结果；为空时不估算米制距离和投篮类型。 */
         val homography: CourtHomography? = null,
-        /** 筐框是否来自机位记忆（自动套用）。 */
+        /** 首帧筐框是否来自机位记忆或自动检测。 */
         val autoDetected: Boolean = false,
+        /** 输入筐框可信时按固定机位使用；自动定位传入 false 并允许动态跟踪。 */
+        val rimInputTrusted: Boolean = true,
+        /** 自动定位路径是否持续跟踪移动篮筐；人工/机位记忆路径保持固定筐。 */
+        val useDynamicRim: Boolean = true,
+        /** 自动移动筐路径用橙色连通域补 YOLO 漏检；人工固定筐不使用。 */
+        val useColorFlightCandidates: Boolean = true,
     )
 
     data class Live(
@@ -82,8 +90,10 @@ class ShotAnalyzer(private val context: Context) {
         var detectHits = 0
         var trackHits = 0
         var colorHits = 0
+        var colorFlightPoints = 0
         var pendingShoulderY = 0.45f
         var pendingApproach0 = 0f
+        var pendingRimCx = 0f
         var pendingRose = 0f
         val releaseAngles = mutableListOf<Float>()
         val elbowAngles = mutableListOf<Float>()
@@ -97,6 +107,10 @@ class ShotAnalyzer(private val context: Context) {
         var sinceDetect = Int.MAX_VALUE
         val tracker = TemplateTracker()
         val colorFinder = ColorBallFinder()
+        val colorFlightFinder = ColorBallCandidateFinder()
+        var rimCalibrator: DynamicRimCalibrator? = null
+        val sceneCutGate = SceneCut.Gate()
+        val rimTrack = ArrayList<RimTrackPoint>()
 
         val ball = BallDetector(context)
         val yolo = YoloBallDetector(context)
@@ -116,8 +130,9 @@ class ShotAnalyzer(private val context: Context) {
         val thumbs = HashMap<Long, android.graphics.Bitmap>()
         var prevSig: FloatArray? = null
         var cuts = 0
+        var sceneSegment = 0
         val ballW = ArrayList<Float>()
-        var hoopFinal: NRect? = null
+        var rimSeedForEngine: NRect? = null
         var scaledW = 0
         var frameHForEngine = 1280
         var tDecode = 0L; var tDetect = 0L; var tPerson = 0L; var tRoi = 0L
@@ -145,8 +160,10 @@ class ShotAnalyzer(private val context: Context) {
                     var scaled: android.graphics.Bitmap? = if (frame.width <= options.analyzeWidthPx) frame else try { frame.scaledToWidth(options.analyzeWidthPx) } catch (t2: Throwable) { null }
                     if (scaled != null) {
                         val sig = SceneCut.signature(scaled)
-                        if (SceneCut.isCut(prevSig, sig)) {
+                        val sceneCut = sceneCutGate.update(t, prevSig, sig)
+                        if (sceneCut) {
                             cuts++
+                            sceneSegment++
                             tracker.reset()
                             track.clear()
                             shotStartMs = null
@@ -165,7 +182,38 @@ class ShotAnalyzer(private val context: Context) {
                             hoop.right,
                             ((hoop.bottom * preH - c.top) / c.height).coerceIn(0f, 1f),
                         ) else hoop
-                        hoopFinal = hoopA
+                        if (rimSeedForEngine == null) rimSeedForEngine = hoopA
+                        var currentRim = hoopA
+                        // 人工确认/机位记忆的筐框视为静态机位；自动找筐路径才持续跟踪移动筐。
+                        if (options.useDynamicRim && !options.rimInputTrusted) {
+                            val calibrator = rimCalibrator ?: DynamicRimCalibrator(
+                                minimumWidth = (hoopA.w * 0.55f).coerceAtLeast(0.012f),
+                            ).also { rimCalibrator = it }
+                            val candidates = if (frames % 2 == 0) {
+                                RimCandidateFinder.findCandidates(scaled)
+                            } else {
+                                emptyList()
+                            }.toMutableList()
+                            // 切镜段号只隔离轨迹；单帧误切不能直接重置筐跟踪。
+                            // 真实硬切会让近筐候选持续失配，超过 800ms 后自行重捕。
+                            calibrator.update(t, candidates, sceneCut = false)?.let { point ->
+                                rimTrack.add(point.copy(segment = sceneSegment))
+                                currentRim = point.rim
+                            }
+                        }
+                        val colorFlight = if (
+                            options.useColorFlightCandidates &&
+                            !options.rimInputTrusted
+                        ) {
+                            colorFlightFinder.findCandidates(
+                                bitmap = scaled,
+                                rim = currentRim,
+                                players = lastPersons,
+                                sceneCut = sceneCut,
+                            )
+                        } else {
+                            emptyList()
+                        }
                         scaledW = scaled.width
                         frameHForEngine = scaled.height
 
@@ -273,12 +321,12 @@ class ShotAnalyzer(private val context: Context) {
                             val sampleConfidence = sample?.score ?: 0f
                             if (options.refineRimRoi &&
                                 yolo.initError == null &&
-                                hoopA.w * scaled.width >= RoiRefinementPolicy.MIN_RIM_PIXELS &&
-                                RoiRefinementPolicy.shouldRun(ballNow, sampleConfidence, hoopA)
+                                currentRim.w * scaled.width >= RoiRefinementPolicy.MIN_RIM_PIXELS &&
+                                RoiRefinementPolicy.shouldRun(ballNow, sampleConfidence, currentRim)
                             ) {
-                                val cx = hoopA.cx
-                                val cy = (hoopA.top + hoopA.bottom) / 2f
-                                val half = RoiRefinementPolicy.roiHalf(hoopA)
+                                val cx = currentRim.cx
+                                val cy = (currentRim.top + currentRim.bottom) / 2f
+                                val half = RoiRefinementPolicy.roiHalf(currentRim)
                                 val l = (cx - half).coerceIn(0f, 1f); val t0 = (cy - half).coerceIn(0f, 1f)
                                 val r = (cx + half).coerceIn(0f, 1f); val b0 = (cy + half).coerceIn(0f, 1f)
                                 val x0 = (l * scaled.width).toInt()
@@ -306,10 +354,32 @@ class ShotAnalyzer(private val context: Context) {
                                 val pb = pboxDet ?: lastPerson
                                 val pbAll = if (lastPersons.isNotEmpty()) lastPersons else listOfNotNull(pb)
                                 val cands = ArrayList<TrackletEngine.Obs>()
-                                roiSample?.let { cands.add(TrackletEngine.Obs(t, it.x, it.y, 0.9f)) }
-                                detPos?.let { cands.add(TrackletEngine.Obs(t, it.x, it.y, 0.8f)) }
-                                sample?.let { cands.add(TrackletEngine.Obs(t, it.p.x, it.p.y, it.score)) }
-                                if (cands.isNotEmpty()) obsFrames.add(TrackletEngine.FrameObs(t, cands, pb, pbAll))
+                                roiSample?.let {
+                                    cands.add(TrackletEngine.Obs(t, it.x, it.y, 0.9f, sceneSegment))
+                                }
+                                detPos?.let {
+                                    cands.add(TrackletEngine.Obs(t, it.x, it.y, 0.8f, sceneSegment))
+                                }
+                                sample?.let {
+                                    cands.add(TrackletEngine.Obs(t, it.p.x, it.p.y, it.score, sceneSegment))
+                                }
+                                colorFlight.forEach { candidate ->
+                                    cands.add(
+                                        TrackletEngine.Obs(
+                                            t = t,
+                                            x = candidate.rect.cx,
+                                            y = candidate.rect.cy,
+                                            conf = candidate.confidence,
+                                            segment = sceneSegment,
+                                        ),
+                                    )
+                                    colorFlightPoints++
+                                }
+                                if (cands.isNotEmpty()) {
+                                    obsFrames.add(
+                                        TrackletEngine.FrameObs(t, cands, pb, pbAll, sceneSegment),
+                                    )
+                                }
                                 if (t % 1000 < stepMs) {
                                     try {
                                         val th = makeThumb(scaled, 0.5f, 0.5f)
@@ -336,7 +406,8 @@ class ShotAnalyzer(private val context: Context) {
                                 // 记录候选，等后续帧确认是否满足"过肩 / 接近筐"
                                 shotStartMs = t
                                 pendingShoulderY = shoulderY
-                                pendingApproach0 = kotlin.math.abs(p.x - hoopA.cx)
+                                pendingRimCx = currentRim.cx
+                                pendingApproach0 = kotlin.math.abs(p.x - pendingRimCx)
                                 pendingRose = 0f
                                 track = track.takeLast(6).toMutableList()
                             }
@@ -347,11 +418,16 @@ class ShotAnalyzer(private val context: Context) {
                             track.lastOrNull()?.let { s ->
                                 if (s.p.y < pendingShoulderY) pendingRose = 1f
                             }
-                            val approach = kotlin.math.abs((track.lastOrNull()?.p?.x ?: hoopA.cx) - hoopA.cx)
+                            val approach = kotlin.math.abs((track.lastOrNull()?.p?.x ?: pendingRimCx) - pendingRimCx)
                             val needRise = pendingRose > 0f || !sensitivity.requireRise
-                            val plausibleShot = needRise || (pendingApproach0 - approach) > sensitivity.riseFactor * 1.5f * hoop.w
-                            val done = Geometry.isMade(track, hoopA) ||
-                                (track.isNotEmpty() && track.last().p.y > hoopA.bottom + 0.06f) ||
+                            val plausibleShot = needRise || (pendingApproach0 - approach) > sensitivity.riseFactor * 1.5f * currentRim.w
+                            val crossedObservedRim = if (options.useDynamicRim && rimTrack.isNotEmpty()) {
+                                crossedRimAtObservedTimes(track, rimTrack, currentRim)
+                            } else {
+                                Geometry.isMade(track, currentRim)
+                            }
+                            val done = crossedObservedRim ||
+                                (track.isNotEmpty() && track.last().p.y > currentRim.bottom + 0.06f) ||
                                 (t - start > 2500)
                             if (done) {
                                 // 旧逐帧逻辑只保留姿态和持球时长指标，不再修改出手、命中或明细。
@@ -393,7 +469,8 @@ class ShotAnalyzer(private val context: Context) {
             Log.i(
                 "ShotLab",
                 "cuts=" + cuts + " done frames=" + frames + " detect=" + detectHits +
-                    " precision=" + precisionHits + " color=" + colorHits + " track=" + trackHits,
+                    " precision=" + precisionHits + " color=" + colorHits +
+                    " colorFlight=" + colorFlightPoints + " track=" + trackHits,
             )
         } catch (t: Throwable) {
             Log.w("ShotLab", "analysis stopped", t)
@@ -407,13 +484,16 @@ class ShotAnalyzer(private val context: Context) {
 
 
         // ---- 轨迹法是最终出手、命中、类型和节奏的唯一来源 ----
-        val engineRim = hoopFinal ?: hoop
+        val engineRim = rimSeedForEngine ?: hoop
         val trackletResult = TrackletEngine.runDetailed(
             obsFrames,
             engineRim,
             scaledW.takeIf { it > 0 } ?: 0,
             frameHForEngine,
             options.homography,
+            rimTrack,
+            allowLowResMade = !options.rimInputTrusted,
+            allowRimRefinement = !options.rimInputTrusted,
         )
         val trackletEvents = trackletResult.events
         val finalRim = trackletResult.rim
@@ -427,6 +507,7 @@ class ShotAnalyzer(private val context: Context) {
                     analysisHeight = frameHForEngine,
                     rim = engineRim,
                     correctedRim = finalRim,
+                    rimTrack = rimTrack,
                     frames = obsFrames,
                     events = summary.events,
                     rimAdjustedPx = trackletResult.rimAdjustedPx,
@@ -608,6 +689,26 @@ private fun formatFps(format: MediaFormat): Double? {
         try { format.getFloat(MediaFormat.KEY_FRAME_RATE).toDouble() } catch (_: Throwable) { null }
     }
     return value?.takeIf { it in 1.0..240.0 }
+}
+
+/** 预览状态只用于姿态/时长指标，穿筐闭合也必须使用每个采样时刻的筐框。 */
+private fun crossedRimAtObservedTimes(
+    track: List<BallSample>,
+    rimTrack: List<RimTrackPoint>,
+    fallback: NRect,
+): Boolean {
+    for (index in 1 until track.size) {
+        val previous = track[index - 1]
+        val current = track[index]
+        val point = rimTrack.minByOrNull { kotlin.math.abs(it.tMs - current.tMs) }
+        val rim = point?.takeIf { kotlin.math.abs(it.tMs - current.tMs) <= 1_000L }?.rim ?: fallback
+        if (previous.p.y < rim.cy && current.p.y >= rim.cy &&
+            kotlin.math.abs(current.p.x - rim.cx) <= 0.65f * rim.w
+        ) {
+            return true
+        }
+    }
+    return false
 }
 
 /** MediaPipe 只收 ARGB_8888；MediaMetadataRetriever 给的是 RGB_565 / HARDWARE。 */

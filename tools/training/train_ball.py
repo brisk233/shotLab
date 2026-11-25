@@ -18,6 +18,13 @@ def parse_args():
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--patience", type=int, default=6)
     parser.add_argument("--freeze", type=int, default=8)
+    parser.add_argument("--optimizer", default="auto")
+    parser.add_argument(
+        "--lr0",
+        type=float,
+        default=0.0,
+        help="initial learning rate; <=0 lets Ultralytics choose automatically",
+    )
     parser.add_argument("--name", default="ball_multisource_v2")
     parser.add_argument("--project", type=Path, default=Path("tools/training/runs"))
     return parser.parse_args()
@@ -26,7 +33,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     model = YOLO(args.base)
-    result = model.train(
+    train_args = dict(
         data=str(args.data),
         imgsz=args.imgsz,
         epochs=args.epochs,
@@ -37,7 +44,6 @@ if __name__ == "__main__":
         amp=False,
         cache="ram",
         freeze=args.freeze,
-        optimizer="auto",
         cos_lr=True,
         close_mosaic=5,
         degrees=6.0,
@@ -55,6 +61,11 @@ if __name__ == "__main__":
         plots=True,
         verbose=True,
     )
+    if args.optimizer:
+        train_args["optimizer"] = args.optimizer
+    if args.lr0 > 0:
+        train_args["lr0"] = args.lr0
+    result = model.train(**train_args)
     best = Path(result.save_dir) / "weights" / "best.pt"
     exported = YOLO(str(best)).export(
         format="onnx",

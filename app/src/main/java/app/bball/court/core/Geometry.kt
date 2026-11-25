@@ -195,7 +195,7 @@ data class ShotReport(
     val error: String? = null,
     val shots: List<ShotEvent> = emptyList(),
     val calibrated: Boolean = false,
-    /** 筐框来自机位记忆（自动套用，无人工介入）。 */
+    /** 首帧筐框来自机位记忆或自动检测，无人工框选。 */
     val autoRim: Boolean = false,
     /** 筐宽 ÷ 球宽。真实值约 1.9；明显偏大说明框把篮板也算进去了。 */
     val rimBallRatio: Float = 0f,

@@ -4,7 +4,8 @@ package app.bball.court.core
  * 轨迹事件的唯一统计出口。
  *
  * 检测与轨迹阶段可以保留多个调试来源，但最终出手、命中、类型和连续记录只能从这里进入报告。
- * 汇总前先按出手时间排序，并合并 1.2 秒内的重复轨迹；同一球同时被判中和不中时保留命中。
+ * 汇总前先按出手时间排序，并合并同一镜头段 1.05 秒内的重复轨迹；
+ * 同一球同时被判中和不中时保留命中。
  */
 object ShotAggregator {
 
@@ -103,7 +104,10 @@ object ShotAggregator {
         val unique = ArrayList<TrackletEngine.Event>(sorted.size)
         for (event in sorted) {
             val previous = unique.lastOrNull()
-            if (previous != null && event.releaseMs - previous.releaseMs < DUPLICATE_WINDOW_MS) {
+            if (previous != null &&
+                event.segment == previous.segment &&
+                event.releaseMs - previous.releaseMs < DUPLICATE_WINDOW_MS
+            ) {
                 if (event.made && !previous.made) unique[unique.lastIndex] = event
                 continue
             }

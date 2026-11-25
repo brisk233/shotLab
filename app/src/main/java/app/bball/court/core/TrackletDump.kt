@@ -12,6 +12,7 @@ object TrackletDump {
         analysisHeight: Int,
         rim: NRect,
         correctedRim: NRect? = null,
+        rimTrack: List<RimTrackPoint> = emptyList(),
         frames: List<TrackletEngine.FrameObs>,
         events: List<TrackletEngine.Event>,
         rimAdjustedPx: Int = 0,
@@ -25,11 +26,22 @@ object TrackletDump {
         append(",\"rim\":").appendRect(rim)
         append(",\"correctedRim\":")
         appendNullableRect(correctedRim)
+        append(",\"rimTrack\":[")
+        rimTrack.forEachIndexed { index, point ->
+            if (index > 0) append(',')
+            append("{\"tMs\":").append(point.tMs)
+            append(",\"rim\":").appendRect(point.rim)
+            append(",\"confidence\":").append(point.confidence)
+            append(",\"segment\":").append(point.segment)
+            append('}')
+        }
+        append(']')
         append(",\"rimAdjustedPx\":").append(rimAdjustedPx)
         append(",\"frames\":[")
         frames.forEachIndexed { frameIndex, frame ->
             if (frameIndex > 0) append(',')
             append("{\"t\":").append(frame.t / 1000.0)
+            append(",\"segment\":").append(frame.segment)
             append(",\"cands\":[")
             frame.cands.forEachIndexed { candidateIndex, candidate ->
                 if (candidateIndex > 0) append(',')
@@ -59,7 +71,8 @@ object TrackletDump {
             append(",\"x\":").append(event.x)
             append(",\"y\":").append(event.y)
             append(",\"distM\":").append(event.distM)
-            append(",\"type\":\"").append(event.type.name).append("\"}")
+            append(",\"type\":\"").append(event.type.name).append('"')
+            append(",\"segment\":").append(event.segment).append('}')
         }
         append("]}")
     }

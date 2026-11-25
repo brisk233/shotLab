@@ -7,6 +7,7 @@
 ## 数据流程
 
 1. `sources_batch01.json` 记录 19 个来源视频、BVID、作者和按视频隔离的划分。
+   `sources_batch02.json` 新增 15 个多场景来源，可用 `--append` 追加到现有数据集。
 2. `build_multisource_dataset.py` 用 YOLO-World 的 `basketball` 提示词做教师标注，
    同时保留无球硬负样本。
 3. `curate_ball_labels.py` 过滤颜色/尺寸不符的教师误标，并对主检小目标做局部复核。
@@ -35,6 +36,15 @@ python tools/training/curate_ball_labels.py --apply
 python tools/training/train_ball.py `
   --base D:\develop\dsh\work\ball-v2\runs\ball_v2\weights\best.pt `
   --epochs 12 --imgsz 416 --freeze 8
+```
+
+接近收敛的模型继续扩数据时使用低学习率微调：
+
+```powershell
+python tools/training/train_ball.py `
+  --base datasets/runs/ball_multisource_v3_from_v76_416/weights/best.pt `
+  --epochs 8 --imgsz 416 --freeze 10 `
+  --optimizer AdamW --lr0 0.0003
 ```
 
 训练产物写入 `datasets/runs/`，不进入版本库。

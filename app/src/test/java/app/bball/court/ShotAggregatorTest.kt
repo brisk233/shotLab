@@ -65,6 +65,18 @@ class ShotAggregatorTest {
     }
 
     @Test
+    fun shotsFromDifferentScenesAreNotMergedByReleaseTime() {
+        val first = event(1_000, made = true, ShotType.TWO).copy(segment = 0)
+        val second = event(1_100, made = true, ShotType.THREE).copy(segment = 1)
+
+        val summary = ShotAggregator.summarize(listOf(first, second))
+
+        assertEquals("切镜后的快节奏出手必须保留", 2, summary.attempts)
+        assertEquals(2, summary.made)
+        assertEquals(listOf(0, 1), summary.events.map { it.segment })
+    }
+
+    @Test
     fun uncalibratedAndroidFixtureEstimatesShotTypes() {
         val parsed = loadFixture("android_two_round1.json")
         val events = TrackletEngine.run(parsed.frames, rim, parsed.width, parsed.height)
